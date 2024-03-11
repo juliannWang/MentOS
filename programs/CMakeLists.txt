@@ -28,6 +28,7 @@ set(PROGRAM_LIST
     uptime.c
     pwd.c
     env.c
+    observe.c
 )
 
 # Set the directory where the compiled binaries will be placed.

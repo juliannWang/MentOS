@@ -11,8 +11,16 @@
 #include "string.h"
 #include "sys/errno.h"
 #include "version.h"
+#include "hardware/cpuid.h"
+#include "process/scheduler.h"
+#include "process/process.h"
+
+
+
 
 static ssize_t procs_do_uptime(char *buffer, size_t bufsize);
+
+static ssize_t procs_do_loadavg(char *buffer,size_t bufsize);
 
 static ssize_t procs_do_version(char *buffer, size_t bufsize);
 
@@ -23,6 +31,7 @@ static ssize_t procs_do_cpuinfo(char *buffer, size_t bufsize);
 static ssize_t procs_do_meminfo(char *buffer, size_t bufsize);
 
 static ssize_t procs_do_stat(char *buffer, size_t bufsize);
+
 
 static ssize_t __procs_read(vfs_file_t *file, char *buf, off_t offset, size_t nbyte)
 {
@@ -52,6 +61,8 @@ static ssize_t __procs_read(vfs_file_t *file, char *buf, off_t offset, size_t nb
         ret = procs_do_meminfo(buffer, BUFSIZ);
     } else if (strcmp(entry->name, "stat") == 0) {
         ret = procs_do_stat(buffer, BUFSIZ);
+    } else if (strcmp(entry->name, "loadavg") == 0) {
+        ret = procs_do_loadavg(buffer, BUFSIZ);
     }
     // Perform read.
     ssize_t it = 0;
@@ -125,6 +136,17 @@ int procs_module_init(void)
     system_entry->sys_operations = &procs_sys_operations;
     system_entry->fs_operations  = &procs_fs_operations;
 
+    // == /proc/loadavg ========================================================
+
+    if ((system_entry = proc_create_entry("loadavg",NULL)) == NULL) {
+        pr_err("Cannot create `/proc/loadavg`.\n");
+        return 1;
+    }
+    pr_debug("Created `/proc/loadavg` (%p)\n", system_entry);
+    //Set the specific operations.
+    system_entry->sys_operations =&procs_sys_operations;
+    system_entry->fs_operations  = &procs_fs_operations;
+
     // == /proc/cpuinfo ========================================================
     if ((system_entry = proc_create_entry("cpuinfo", NULL)) == NULL) {
         pr_err("Cannot create `/proc/cpuinfo`.\n");
@@ -176,12 +198,59 @@ static ssize_t procs_do_version(char *buffer, size_t bufsize)
 
 static ssize_t procs_do_mounts(char *buffer, size_t bufsize)
 {
+    time_t maxRunTime = scheduler_get_maximum_vruntime();
+    size_t activeProcesses = scheduler_get_active_processes();
+    task_struct *runningTask;
+    uint32_t pid = scheduler_getpid();
+    runningTask = scheduler_get_running_process(pid);
+    sprintf(buffer,
+    "Max Run Time\t: %d\n"
+    "current running task\t: %s\n",activeProcesses,runningTask);
     return 0;
 }
 
-static ssize_t procs_do_cpuinfo(char *buffer, size_t bufsize)
-{
+static ssize_t procs_do_cpuinfo(char *buffer,size_t bufsize){
+    cpuinfo_t cpuinfo;
+    get_cpuid(&cpuinfo);
+   sprintf(
+        buffer,
+        "vendor_id\t: %s\n"
+        "cpu type\t: %s\n"
+        "cpu family\t\t: %d\n"
+        "cpu model\t: %d\n"
+        "apic_id\t: %d\n"
+        "cpuid_ecx_flags\t: %d\n"
+        "cpuid_edx_flags\t: %d\n"
+        "brand string\t: %s\n",
+        cpuinfo.cpu_vendor,
+        cpuinfo.cpu_type,
+        cpuinfo.cpu_model,
+        cpuinfo.apic_id,
+        cpuinfo.cpuid_ecx_flags,
+        cpuinfo.cpuid_edx_flags,
+        cpuinfo.brand_string);
+
+    
     return 0;
+}
+
+static ssize_t procs_do_loadavg(char *buffer, size_t bufsize)
+{
+    unsigned long one_min = avenrun[0] ;
+    unsigned long five_min = avenrun[1] ;
+    unsigned long fifteen_min = avenrun[2] ;
+
+sprintf(buffer,
+        "%lu.%02lu %lu.%02lu %lu.%02lu %u %d\n",
+        LOAD_INT(one_min),
+        LOAD_FRAC(one_min),
+        LOAD_INT(five_min),
+        LOAD_FRAC(five_min),
+        LOAD_INT(fifteen_min),
+        LOAD_FRAC(fifteen_min),
+        scheduler_get_active_processes(),
+        scheduler_get_current_process()->pid);
+return 0;
 }
 
 static ssize_t procs_do_meminfo(char *buffer, size_t bufsize)

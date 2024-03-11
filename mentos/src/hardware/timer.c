@@ -111,6 +111,8 @@ void timer_handler(pt_regs *reg)
     unswitch_fpu();
     // The ack is sent to PIC only when all handlers terminated!
     pic8259_send_eoi(IRQ_TIMER);
+
+    calc_load(1);
 }
 
 void timer_install(void)

@@ -9,6 +9,32 @@
 #include "process/process.h"
 #include "stddef.h"
 
+// Macro definitions
+#define FSHIFT      11
+#define FIXED_1     (1<<FSHIFT)
+#define HZ          10
+#define LOAD_FREQ   (5*HZ+1)
+#define EXP_1       1884
+#define EXP_5       2014
+#define EXP_15      2037
+
+#define CALC_LOAD(load, exponent, num_active_tasks) \
+    load *= exponent; \
+    load += num_active_tasks * (FIXED_1 - exponent); \
+    load >>= FSHIFT;
+
+// Function declaration
+void calc_load(unsigned long ticks);
+
+
+extern unsigned long avenrun[3];
+
+
+#define LOAD_INT(x) ((x) >> FSHIFT)
+#define LOAD_FRAC(x) LOAD_INT(((x) * (FIXED_1-1)) * 100)
+
+
+
 /// @brief Structure that contains information about live processes.
 typedef struct runqueue_t {
     /// Number of queued processes.

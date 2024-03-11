@@ -21,6 +21,24 @@
 #include "sys/errno.h"
 #include "system/panic.h"
 
+unsigned long avenrun[3];
+
+#define FSHIFT 11
+#define FIXED_1 (1<<FSHIFT)
+#define HZ 10
+#define LOAD_FREQ (5*HZ+1)
+#define EXP_1 1884
+#define EXP_5 2014
+#define EXP_15 2037
+#define OFFSET (FIXED_1/200)
+#define LOAD_INT(x) ((x) >> FSHIFT)
+#define LOAD_FRAC(x) LOAD_INT(((x) * (FIXED_1-1)) * 100)
+
+#define CALC_LOAD(load, exponent, num_active_tasks) \
+    load *= exponent; \
+    load += num_active_tasks * (FIXED_1 - exponent); \
+    load >>= FSHIFT; 
+
 /// @brief          Assembly function setting the kernel stack to jump into
 ///                 location in Ring 3 mode (USER mode).
 /// @param location The location where to jump.
@@ -47,6 +65,17 @@ uint32_t scheduler_getpid(void)
 
     // Return the pid and increment.
     return tid++;
+}
+
+void calc_load(unsigned long ticks){
+    unsigned long active_tasks;
+    static int count = LOAD_FREQ;
+    active_tasks = scheduler_get_active_processes() * FIXED_1;
+    for (count -= ticks; count <0; count += LOAD_FREQ){
+        CALC_LOAD(avenrun[0], EXP_1,active_tasks);
+        CALC_LOAD(avenrun[1], EXP_5,active_tasks);
+        CALC_LOAD(avenrun[2], EXP_15,active_tasks);
+    }
 }
 
 task_struct *scheduler_get_current_process(void)
@@ -81,8 +110,11 @@ time_t scheduler_get_maximum_vruntime(void)
 
 size_t scheduler_get_active_processes(void)
 {
-    return runqueue.num_active;
+    return list_head_size(&runqueue.queue);
 }
+
+
+
 
 task_struct *scheduler_get_running_process(pid_t pid)
 {
@@ -120,7 +152,9 @@ void scheduler_dequeue_task(task_struct *process)
     // Delete the process from the list of running processes.
     list_head_remove(&process->run_list);
     // Decrement the number of active processes.
+
     --runqueue.num_active;
+
     if (process->se.is_periodic) {
         runqueue.num_periodic--;
     }
